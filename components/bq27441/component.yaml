@@ -1,0 +1,10 @@
+name: "bq27441"
+version: "1.0"
+
+requirements:
+  - idf: "*"
+  - arduino: "*"
+
+esphome:
+  name: "BQ27441"
+  
