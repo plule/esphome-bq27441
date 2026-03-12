@@ -37,14 +37,6 @@ namespace esphome::bq27441
             else
                 ESP_LOGD(TAG, "Firmware version: %#02x", fw_version.value());
 
-            if (!_design_capacity.has_value() && !_design_energy.has_value())
-            {
-                // No conf, skip configuration
-                ESP_LOGD(TAG, "Initialized");
-                _initialization = Initialization::Initialized;
-                return;
-            }
-
             ESP_LOGV(TAG, "Unsealing configuration");
 
             // Unsealing is done by writing twice the unsealing key
@@ -157,32 +149,11 @@ namespace esphome::bq27441
 
             ESP_LOGD(TAG, "Initialized");
             _initialization = Initialization::Initialized;
-        }
-        }
-    }
 
-    bool BQ27441::write_extended_block_data(uint16_t to_write, uint8_t offset, uint8_t *tmp_checksum)
-    {
-        uint8_t msb = to_write >> 8;
-        uint8_t lsb = to_write & 0x00FF;
-        std::array<uint8_t, 2> data{msb, lsb};
-        bool changed = false;
-        for (uint8_t i = 0; i < data.size(); ++i)
-        {
-            uint8_t address = BQ27441_EXTENDED_BLOCKDATA + offset + i;
-            uint8_t prev = this->read_byte(address).value_or(0);
-            if (prev != data[i])
-            {
-                // Update the checksum removing the previous value
-                changed = true;
-                *tmp_checksum -= prev;
-                // Write to new value
-                this->write_byte(address, data[i]);
-                // Update the checksum with the new value
-                *tmp_checksum += data[i];
-            }
+            // Send the initial update()
+            this->update();
         }
-        return changed;
+        }
     }
 
     void BQ27441::dump_config()
@@ -270,12 +241,6 @@ namespace esphome::bq27441
         }
     }
 
-    optional<std::uint16_t> BQ27441::read_control_word(uint16_t function)
-    {
-        this->write_u16(BQ27441_COMMAND_CONTROL, function);
-        return this->read_u16(BQ27441_COMMAND_CONTROL);
-    }
-
     bool BQ27441::write_u16(uint8_t a_register, uint16_t data)
     {
         uint8_t msb = (data >> 8);
@@ -291,11 +256,42 @@ namespace esphome::bq27441
             return nullopt;
         return ((uint16_t)data2.value()[1] << 8) | data2.value()[0];
     }
+
     optional<int16_t> BQ27441::read_i16(uint8_t a_register)
     {
         optional<uint16_t> data = this->read_u16(a_register);
         if (!data.has_value())
             return nullopt;
         return (int16_t)data.value();
+    }
+
+    optional<std::uint16_t> BQ27441::read_control_word(uint16_t function)
+    {
+        this->write_u16(BQ27441_COMMAND_CONTROL, function);
+        return this->read_u16(BQ27441_COMMAND_CONTROL);
+    }
+
+    bool BQ27441::write_extended_block_data(uint16_t to_write, uint8_t offset, uint8_t *tmp_checksum)
+    {
+        uint8_t msb = to_write >> 8;
+        uint8_t lsb = to_write & 0x00FF;
+        std::array<uint8_t, 2> data{msb, lsb};
+        bool changed = false;
+        for (uint8_t i = 0; i < data.size(); ++i)
+        {
+            uint8_t address = BQ27441_EXTENDED_BLOCKDATA + offset + i;
+            uint8_t prev = this->read_byte(address).value_or(0);
+            if (prev != data[i])
+            {
+                // Update the checksum removing the previous value
+                changed = true;
+                *tmp_checksum -= prev;
+                // Write to new value
+                this->write_byte(address, data[i]);
+                // Update the checksum with the new value
+                *tmp_checksum += data[i];
+            }
+        }
+        return changed;
     }
 }
