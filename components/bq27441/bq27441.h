@@ -52,7 +52,7 @@ namespace esphome::bq27441
         optional<uint16_t> read_u16(uint8_t a_register);
         optional<int16_t> read_i16(uint8_t a_register);
         optional<uint16_t> read_control_word(uint16_t function);
-        void write_extended_block_data(uint16_t to_write, uint8_t offset, uint8_t *tmp_checksum);
+        bool write_extended_block_data(uint16_t to_write, uint8_t offset, uint8_t *tmp_checksum);
 
         /// @brief Configuration data to write
         struct ExtendedDataConfig

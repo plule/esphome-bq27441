@@ -92,30 +92,45 @@ namespace esphome::bq27441
             uint8_t tmp_checksum = 0xFF - old_checksum.value();
 
             // Write the new config
+            bool changed = false;
             if (_design_capacity.has_value())
             {
-                write_extended_block_data(_design_capacity.value(), 10, &tmp_checksum);
+                changed |= write_extended_block_data(_design_capacity.value(), 10, &tmp_checksum);
             }
 
             if (_design_energy.has_value())
             {
-                write_extended_block_data(_design_energy.value(), 12, &tmp_checksum);
+                changed |= write_extended_block_data(_design_energy.value(), 12, &tmp_checksum);
             }
 
-            // Write new checksum. This applies the RAM write if matching.
-            uint8_t new_expected_checksum = 0xFF - tmp_checksum;
-            this->write_byte(BQ27441_EXTENDED_CHECKSUM, new_expected_checksum);
+            if (changed)
+            {
+                // Write new checksum. This applies the RAM write if matching.
+                uint8_t new_expected_checksum = 0xFF - tmp_checksum;
+                this->write_byte(BQ27441_EXTENDED_CHECKSUM, new_expected_checksum);
 
-            // Verify checksum
-            this->write_byte(BQ27441_EXTENDED_DATACLASS, BQ27441_ID_STATE);
-            this->write_byte(BQ27441_EXTENDED_DATABLOCK, 0x00);
+                // Verify checksum
+                this->write_byte(BQ27441_EXTENDED_DATACLASS, BQ27441_ID_STATE);
+                this->write_byte(BQ27441_EXTENDED_DATABLOCK, 0x00);
 
-            optional<uint8_t> new_checksum = this->read_byte(BQ27441_EXTENDED_CHECKSUM);
-            if (!new_checksum.has_value() || new_checksum.value() != new_expected_checksum)
-                return this->mark_failed(LOG_STR("Checksum error"));
+                optional<uint8_t> new_checksum = this->read_byte(BQ27441_EXTENDED_CHECKSUM);
+                if (!new_checksum.has_value() || new_checksum.value() != new_expected_checksum)
+                    return this->mark_failed(LOG_STR("Checksum error"));
+            }
 
-            ESP_LOGV(TAG, "Performing soft reset");
-            this->write_u16(BQ27441_COMMAND_CONTROL, BQ27441_CONTROL_SOFT_RESET);
+            // We must reset if the ITPOR flag is set (RAM was cleared, powerloss), or if any update
+            // to the ram config is actually done
+            bool itpor = flags_value.value() & BQ27441_FLAG_ITPOR;
+            if (changed || itpor)
+            {
+                ESP_LOGD(TAG, "Performing soft reset after configuration update");
+                this->write_u16(BQ27441_COMMAND_CONTROL, BQ27441_CONTROL_SOFT_RESET);
+            }
+            else
+            {
+                ESP_LOGD(TAG, "Skipping soft reset");
+                this->write_u16(BQ27441_COMMAND_CONTROL, BQ27441_CONTROL_EXIT_CFGUPDATE);
+            }
 
             _initialization = Initialization::ExitConfig;
             _initialization_retry = 0;
@@ -146,21 +161,28 @@ namespace esphome::bq27441
         }
     }
 
-    void BQ27441::write_extended_block_data(uint16_t to_write, uint8_t offset, uint8_t *tmp_checksum)
+    bool BQ27441::write_extended_block_data(uint16_t to_write, uint8_t offset, uint8_t *tmp_checksum)
     {
         uint8_t msb = to_write >> 8;
         uint8_t lsb = to_write & 0x00FF;
         std::array<uint8_t, 2> data{msb, lsb};
+        bool changed = false;
         for (uint8_t i = 0; i < data.size(); ++i)
         {
-            // Update the checksum with the previous value
-            uint8_t prev = this->read_byte(BQ27441_EXTENDED_BLOCKDATA + offset + i).value_or(0);
-            *tmp_checksum -= prev;
-            // Write to new value
-            this->write_byte(BQ27441_EXTENDED_BLOCKDATA + offset + i, data[i]);
-            // Update the checksum with the new value
-            *tmp_checksum += data[i];
+            uint8_t address = BQ27441_EXTENDED_BLOCKDATA + offset + i;
+            uint8_t prev = this->read_byte(address).value_or(0);
+            if (prev != data[i])
+            {
+                // Update the checksum removing the previous value
+                changed = true;
+                *tmp_checksum -= prev;
+                // Write to new value
+                this->write_byte(address, data[i]);
+                // Update the checksum with the new value
+                *tmp_checksum += data[i];
+            }
         }
+        return changed;
     }
 
     void BQ27441::dump_config()
