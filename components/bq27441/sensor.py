@@ -79,34 +79,21 @@ CONFIG_SCHEMA = cv.Schema(
     }
 )
 
+SENSOR_MAP = {
+    CONF_BATTERY_LEVEL: "set_level_sensor",
+    CONF_BATTERY_VOLTAGE: "set_voltage_sensor",
+    CONF_REMAINING_CAPACITY: "set_remaining_capacity_sensor",
+    CONF_TEMPERATURE: "set_temperature_sensor",
+    CONF_POWER: "set_power_sensor",
+    CONF_BATTERY_HEALTH: "set_health_sensor",
+    CONF_CURRENT: "set_current_sensor",
+}
+
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_BQ27441_ID])
 
-    if conf := config.get(CONF_BATTERY_LEVEL):
-        sens = await sensor.new_sensor(conf)
-        cg.add(parent.set_level_sensor(sens))
-
-    if conf := config.get(CONF_BATTERY_VOLTAGE):
-        sens = await sensor.new_sensor(conf)
-        cg.add(parent.set_voltage_sensor(sens))
-
-    if conf := config.get(CONF_REMAINING_CAPACITY):
-        sens = await sensor.new_sensor(conf)
-        cg.add(parent.set_remaining_capacity_sensor(sens))
-
-    if conf := config.get(CONF_TEMPERATURE):
-        sens = await sensor.new_sensor(conf)
-        cg.add(parent.set_temperature_sensor(sens))
-
-    if conf := config.get(CONF_POWER):
-        sens = await sensor.new_sensor(conf)
-        cg.add(parent.set_power_sensor(sens))
-
-    if conf := config.get(CONF_BATTERY_HEALTH):
-        sens = await sensor.new_sensor(conf)
-        cg.add(parent.set_health_sensor(sens))
-
-    if conf := config.get(CONF_CURRENT):
-        sens = await sensor.new_sensor(conf)
-        cg.add(parent.set_current_sensor(sens))
+    for key, func_name in SENSOR_MAP.items():
+        if conf := config.get(key):
+            sens = await sensor.new_sensor(conf)
+            cg.add(getattr(parent, func_name)(sens))

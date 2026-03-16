@@ -4,7 +4,7 @@
 #include <array>
 
 #include "esphome/core/log.h"
-#include "esphome/core/hal.h"
+#include "esphome/components/sensor/sensor.h"
 
 namespace esphome::bq27441
 {
@@ -13,13 +13,14 @@ namespace esphome::bq27441
     void BQ27441::setup()
     {
         // The setup is async in loop()
-        _initialization = Initialization::Initializing;
-        loop();
+        this->stop_poller();
+        this->initialization_state_ = Initialization::Initializing;
+        this->loop();
     }
 
     void BQ27441::loop()
     {
-        switch (_initialization)
+        switch (this->initialization_state_)
         {
         case Initialization::Initializing:
         {
@@ -50,18 +51,18 @@ namespace esphome::bq27441
             ESP_LOGV(TAG, "Entering config update");
             this->write_u16(BQ27441_COMMAND_CONTROL, BQ27441_CONTROL_SET_CFGUPDATE);
 
-            _initialization = Initialization::WriteConfig;
-            _initialization_retry = 0;
+            this->initialization_state_ = Initialization::WriteConfig;
+            this->initialization_retry_ = 0;
         }
         case Initialization::WriteConfig:
         {
-            ESP_LOGV(TAG, "Waiting for config mode set %d/32", _initialization_retry + 1);
+            ESP_LOGV(TAG, "Waiting for config mode set %d/32", initialization_retry_ + 1);
 
             optional<uint16_t> flags_value = this->read_u16(BQ27441_COMMAND_FLAGS);
             if (!flags_value.has_value() || !(flags_value.value() & BQ27441_FLAG_CFGUPMODE))
             {
-                _initialization_retry++;
-                if (_initialization_retry >= 32)
+                initialization_retry_++;
+                if (initialization_retry_ >= 32)
                     this->mark_failed(LOG_STR("Failed to enter config update"));
                 return;
             }
@@ -85,14 +86,14 @@ namespace esphome::bq27441
 
             // Write the new config
             bool changed = false;
-            if (_design_capacity.has_value())
+            if (this->design_capacity_.has_value())
             {
-                changed |= write_extended_block_data(_design_capacity.value(), 10, &tmp_checksum);
+                changed |= this->write_extended_block_data(design_capacity_.value(), 10, &tmp_checksum);
             }
 
-            if (_design_energy.has_value())
+            if (this->design_energy_.has_value())
             {
-                changed |= write_extended_block_data(_design_energy.value(), 12, &tmp_checksum);
+                changed |= this->write_extended_block_data(design_energy_.value(), 12, &tmp_checksum);
             }
 
             if (changed)
@@ -124,34 +125,32 @@ namespace esphome::bq27441
                 this->write_u16(BQ27441_COMMAND_CONTROL, BQ27441_CONTROL_EXIT_CFGUPDATE);
             }
 
-            _initialization = Initialization::ExitConfig;
-            _initialization_retry = 0;
+            this->initialization_state_ = Initialization::ExitConfig;
+            this->initialization_retry_ = 0;
         }
         case Initialization::ExitConfig:
         {
-            ESP_LOGV(TAG, "Waiting for config mode unset %d/32", _initialization_retry + 1);
+            ESP_LOGV(TAG, "Waiting for config mode unset %d/32", initialization_retry_ + 1);
 
             optional<uint16_t> flags_value = this->read_u16(BQ27441_COMMAND_FLAGS);
             if (!flags_value.has_value() || (flags_value.value() & BQ27441_FLAG_CFGUPMODE))
             {
-                _initialization_retry++;
+                this->initialization_retry_++;
 
-                if (_initialization_retry >= 32)
+                if (this->initialization_retry_ >= 32)
                     this->mark_failed(LOG_STR("Failed to exit config update"));
                 return;
             }
 
             ESP_LOGV(TAG, "Sealing the configuration");
             this->write_u16(BQ27441_COMMAND_CONTROL, BQ27441_CONTROL_SEALED);
-            optional<uint16_t> status = read_control_word(BQ27441_CONTROL_STATUS);
+            optional<uint16_t> status = this->read_control_word(BQ27441_CONTROL_STATUS);
             if (!status.has_value() || !(status.value() & BQ27441_STATUS_SS))
                 return this->mark_failed(LOG_STR("Resealing did not work"));
 
             ESP_LOGD(TAG, "Initialized");
-            _initialization = Initialization::Initialized;
-
-            // Send the initial update()
-            this->update();
+            this->initialization_state_ = Initialization::Initialized;
+            this->start_poller();
         }
         }
     }
@@ -162,81 +161,81 @@ namespace esphome::bq27441
         LOG_I2C_DEVICE(this);
         LOG_UPDATE_INTERVAL(this);
 
-        if (_design_capacity.has_value())
+        if (this->design_capacity_.has_value())
         {
-            ESP_LOGCONFIG(TAG, "  Design Capacity: %d", _design_capacity.value());
+            ESP_LOGCONFIG(TAG, "  Design Capacity: %d", design_capacity_.value());
         }
 
-        if (_design_energy.has_value())
+        if (this->design_energy_.has_value())
         {
-            ESP_LOGCONFIG(TAG, "  Design Energy: %d", _design_energy.value());
+            ESP_LOGCONFIG(TAG, "  Design Energy: %d", design_energy_.value());
         }
 
-        LOG_SENSOR("  ", "Level", _level);
-        LOG_SENSOR("  ", "Voltage", _voltage);
-        LOG_SENSOR("  ", "Remaining Capacity", _remaining_capacity);
-        LOG_SENSOR("  ", "Temperature", _temperature);
-        LOG_SENSOR("  ", "Power", _power);
-        LOG_SENSOR("  ", "Current", _current);
-        LOG_SENSOR("  ", "Health", _health);
+        LOG_SENSOR("  ", "Level", this->level_sensor_);
+        LOG_SENSOR("  ", "Voltage", this->voltage_sensor_);
+        LOG_SENSOR("  ", "Remaining Capacity", this->remaining_capacity_sensor_);
+        LOG_SENSOR("  ", "Temperature", this->temperature_sensor_);
+        LOG_SENSOR("  ", "Power", this->power_sensor_);
+        LOG_SENSOR("  ", "Current", this->current_sensor_);
+        LOG_SENSOR("  ", "Health", this->health_sensor_);
     }
 
     void BQ27441::update()
     {
-        if (_initialization != Initialization::Initialized)
+        if (this->initialization_state_ != Initialization::Initialized)
             return;
 
-        if (_level)
+        if (this->level_sensor_)
         {
-            optional<uint16_t> data = read_u16(BQ27441_COMMAND_SOC);
+            optional<uint16_t> data = this->read_u16(BQ27441_COMMAND_SOC);
             if (data.has_value())
-                _level->publish_state((float)data.value());
+                this->level_sensor_->publish_state((float)data.value());
         }
 
-        if (_voltage)
+        if (this->voltage_sensor_)
         {
-            optional<uint16_t> data = read_u16(BQ27441_COMMAND_VOLTAGE);
+            optional<uint16_t> data = this->read_u16(BQ27441_COMMAND_VOLTAGE);
             if (data.has_value())
-                _voltage->publish_state((float)data.value());
+                this->voltage_sensor_->publish_state((float)data.value());
         }
 
-        if (_remaining_capacity)
+        if (this->remaining_capacity_sensor_)
         {
-            optional<uint16_t> data = read_u16(BQ27441_COMMAND_REM_CAPACITY);
+            optional<uint16_t> data = this->read_u16(BQ27441_COMMAND_REM_CAPACITY);
             if (data.has_value())
-                _remaining_capacity->publish_state((float)data.value());
+                this->remaining_capacity_sensor_->publish_state((float)data.value());
         }
 
-        if (_temperature)
+        if (this->temperature_sensor_)
         {
-            optional<uint16_t> data = read_u16(BQ27441_COMMAND_TEMP);
+            optional<uint16_t> data = this->read_u16(BQ27441_COMMAND_TEMP);
             // It's in 0.1K, convert to celcius
             if (data.has_value())
-                _temperature->publish_state(-273.15 + 0.1 * (float)data.value());
+                this->temperature_sensor_->publish_state(-273.15 + 0.1 * (float)data.value());
         }
 
-        if (_power)
+        if (this->power_sensor_)
         {
-            optional<int16_t> data = read_i16(BQ27441_COMMAND_AVG_POWER);
+            optional<int16_t> data = this->read_i16(BQ27441_COMMAND_AVG_POWER);
             // It's in milliWh, convert to Wh
             if (data.has_value())
-                _power->publish_state(0.001 * (float)data.value());
+                this->power_sensor_->publish_state(0.001 * (float)data.value());
         }
 
-        if (_current)
+        if (this->current_sensor_)
         {
-            optional<int16_t> data = read_i16(BQ27441_COMMAND_AVG_CURRENT);
+            optional<int16_t> data = this->read_i16(BQ27441_COMMAND_AVG_CURRENT);
             if (data.has_value())
-                _current->publish_state((float)data.value());
+                this->current_sensor_->publish_state((float)data.value());
         }
 
-        if (_health)
+        if (this->health_sensor_)
         {
             optional<uint16_t> data = this->read_u16(BQ27441_COMMAND_SOH);
             if (data.has_value())
             {
                 uint8_t soh_percent = data.value() & 0x00FF;
-                _health->publish_state((float)soh_percent);
+                this->health_sensor_->publish_state((float)soh_percent);
             }
         }
     }
