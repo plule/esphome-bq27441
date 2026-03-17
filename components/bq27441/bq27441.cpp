@@ -9,6 +9,7 @@
 namespace esphome::bq27441
 {
     static const char *const TAG = "bq27441";
+    static const size_t MAX_STEP_RETRY = 128;
 
     void BQ27441::setup()
     {
@@ -56,13 +57,13 @@ namespace esphome::bq27441
         }
         case Initialization::WriteConfig:
         {
-            ESP_LOGV(TAG, "Waiting for config mode set %d/32", initialization_retry_ + 1);
+            ESP_LOGV(TAG, "Waiting for config mode set %d/%d", initialization_retry_ + 1, MAX_STEP_RETRY);
 
             optional<uint16_t> flags_value = this->read_u16(BQ27441_COMMAND_FLAGS);
             if (!flags_value.has_value() || !(flags_value.value() & BQ27441_FLAG_CFGUPMODE))
             {
                 initialization_retry_++;
-                if (initialization_retry_ >= 32)
+                if (initialization_retry_ >= MAX_STEP_RETRY)
                     this->mark_failed(LOG_STR("Failed to enter config update"));
                 return;
             }
@@ -130,14 +131,14 @@ namespace esphome::bq27441
         }
         case Initialization::ExitConfig:
         {
-            ESP_LOGV(TAG, "Waiting for config mode unset %d/32", initialization_retry_ + 1);
+            ESP_LOGV(TAG, "Waiting for config mode unset %d/%d", initialization_retry_ + 1, MAX_STEP_RETRY);
 
             optional<uint16_t> flags_value = this->read_u16(BQ27441_COMMAND_FLAGS);
             if (!flags_value.has_value() || (flags_value.value() & BQ27441_FLAG_CFGUPMODE))
             {
                 this->initialization_retry_++;
 
-                if (this->initialization_retry_ >= 32)
+                if (this->initialization_retry_ >= MAX_STEP_RETRY)
                     this->mark_failed(LOG_STR("Failed to exit config update"));
                 return;
             }
