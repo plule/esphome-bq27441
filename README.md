@@ -11,17 +11,14 @@ i2c:
   sda: GPIO21
   scl: GPIO22
 
-# Battery controller
-bq27441:
-  # I2C Address, 0x55 is the default
-  address: 0x55
-  # Capacity of the plugged battery in mAh
-  capacity: 1200
-  # Reporting interval
-  update_interval: 30s
-
 sensor:
   - platform: bq27441
+    # I2C Address, 0x55 is the default
+    address: 0x55
+    # Capacity of the plugged battery in mAh
+    capacity: 1200
+    # Reporting interval
+    update_interval: 30s
     # Battery level in %
     battery_level:
       name: "Battery Level"
