@@ -12,7 +12,6 @@ from esphome.const import (
     CONF_TEMPERATURE,
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_CURRENT,
-    DEVICE_CLASS_ENERGY,
     DEVICE_CLASS_VOLTAGE,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_POWER,
@@ -57,8 +56,8 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_REMAINING_CAPACITY): sensor.sensor_schema(
                 unit_of_measurement="mAh",
                 accuracy_decimals=0,
-                device_class=DEVICE_CLASS_ENERGY,
                 state_class=STATE_CLASS_MEASUREMENT,
+                # No appropriate device class
             ),
             cv.Optional(CONF_TEMPERATURE): sensor.sensor_schema(
                 unit_of_measurement=UNIT_CELSIUS,
