@@ -7,11 +7,12 @@ This external component adds support for BQ27441 battery controller in ESPHome.
 This device communicates over I2C, which needs to be configured.
 
 ```yaml
-- source: 
-    type: git
-    url: https://github.com/plule/esphome-components
-    ref: main
-  components: [bq27441]
+external_components:
+  - source: 
+      type: git
+      url: https://github.com/plule/esphome-components
+      ref: main
+    components: [bq27441]
 
 i2c:
   sda: GPIO21
